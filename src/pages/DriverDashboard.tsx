@@ -1,9 +1,96 @@
-import React, { useState } from 'react';
-import { Bell, User, MapPin, Clock, ToggleLeft, ToggleRight } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Bell, User, MapPin, Clock, ToggleLeft, ToggleRight } from "lucide-react";
+import { supabase } from "../supabaseClient";
 
 export default function DriverDashboard() {
+  const [driver, setDriver] = useState(null);
   const [isAvailable, setIsAvailable] = useState(false);
   const [isAtStand, setIsAtStand] = useState(false);
+
+  const driverLicense = localStorage.getItem("driverLicense");
+
+  // Fetch driver data from Supabase
+  useEffect(() => {
+    const fetchDriver = async () => {
+      if (!driverLicense) return;
+
+      const { data, error } = await supabase
+        .from("drivers")
+        .select("*")
+        .eq("license_number", driverLicense)
+        .single();
+
+      if (error) console.error("Error fetching driver:", error.message);
+      else {
+        setDriver(data);
+        setIsAvailable(data.is_available);
+        setIsAtStand(data.is_at_stand);
+      }
+    };
+
+    fetchDriver();
+  }, [driverLicense]);
+
+  // Update driver status in Supabase
+  const updateStatus = async (field, value, location = null) => {
+    if (!driver) return;
+
+    // Build update payload
+    const updateData = { [field]: value };
+
+    if (field === "is_at_stand" && value && location) {
+      updateData.latitude = location.latitude;
+      updateData.longitude = location.longitude;
+    }
+
+    const { error } = await supabase
+      .from("drivers")
+      .update(updateData)
+      .eq("license_number", driver.license_number);
+
+    if (error) {
+      console.error(`Error updating ${field}:`, error.message);
+    } else {
+      console.log(`Successfully updated ${field} to:`, value);
+    }
+  };
+
+  // Get driver's current location
+  const getLocation = () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        return reject(new Error("Geolocation not supported"));
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }),
+        (error) => reject(error)
+      );
+    });
+  };
+
+  // Handle "At Auto Stand" toggle
+  const handleStandToggle = async () => {
+    try {
+      const newStatus = !isAtStand;
+      setIsAtStand(newStatus);
+
+      if (newStatus) {
+        const location = await getLocation();
+        console.log("Driver is at stand - Location:", location);
+        await updateStatus("is_at_stand", true, location);
+      } else {
+        await updateStatus("is_at_stand", false);
+      }
+    } catch (error) {
+      console.error("Error getting location:", error.message);
+    }
+  };
+
+  if (!driver) return <p>Loading...</p>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -19,70 +106,53 @@ export default function DriverDashboard() {
               <User className="w-6 h-6 text-yellow-600" />
             </div>
             <div>
-              <h2 className="font-semibold text-lg">John Doe</h2>
-              <p className="text-gray-600">KA-01-AB-1234</p>
+              <h2 className="font-semibold text-lg">{driver.name}</h2>
+              <p className="text-gray-600">{driver.vehicle_number}</p>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <MapPin className="w-5 h-5 text-yellow-600" />
-                <span>At Auto Stand</span>
-              </div>
-              <button
-                onClick={() => setIsAtStand(!isAtStand)}
-                className={`p-2 rounded-full ${
-                  isAtStand ? 'bg-green-500' : 'bg-gray-300'
-                } transition-colors duration-300`}
-              >
-                {isAtStand ? (
-                  <ToggleRight className="w-6 h-6 text-white" />
-                ) : (
-                  <ToggleLeft className="w-6 h-6 text-white" />
-                )}
-              </button>
+          {/* At Auto Stand Toggle */}
+          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <MapPin className="w-5 h-5 text-yellow-600" />
+              <span>At Auto Stand</span>
             </div>
-
-            <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <Clock className="w-5 h-5 text-yellow-600" />
-                <span>Available for Rides</span>
-              </div>
-              <button
-                onClick={() => setIsAvailable(!isAvailable)}
-                className={`p-2 rounded-full ${
-                  isAvailable ? 'bg-green-500' : 'bg-gray-300'
-                } transition-colors duration-300`}
-              >
-                {isAvailable ? (
-                  <ToggleRight className="w-6 h-6 text-white" />
-                ) : (
-                  <ToggleLeft className="w-6 h-6 text-white" />
-                )}
-              </button>
-            </div>
+            <button
+              onClick={handleStandToggle}
+              className={`p-2 rounded-full ${
+                isAtStand ? "bg-green-500" : "bg-gray-300"
+              } transition-colors duration-300`}
+            >
+              {isAtStand ? (
+                <ToggleRight className="w-6 h-6 text-white" />
+              ) : (
+                <ToggleLeft className="w-6 h-6 text-white" />
+              )}
+            </button>
           </div>
-        </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold mb-4">Today's Rides</h2>
-          <div className="space-y-4">
-            {/* Placeholder for ride history */}
-            <div className="border-b pb-4">
-              <p className="font-medium">City Center → Airport</p>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>₹250</span>
-                <span>2:30 PM</span>
-              </div>
+          {/* Available for Rides Toggle */}
+          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <Clock className="w-5 h-5 text-yellow-600" />
+              <span>Available for Rides</span>
             </div>
-            <div className="border-b pb-4">
-              <p className="font-medium">Mall → Railway Station</p>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>₹150</span>
-                <span>11:15 AM</span>
-              </div>
-            </div>
+            <button
+              onClick={() => {
+                const newAvailability = !isAvailable;
+                setIsAvailable(newAvailability);
+                updateStatus("is_available", newAvailability);
+              }}
+              className={`p-2 rounded-full ${
+                isAvailable ? "bg-green-500" : "bg-gray-300"
+              } transition-colors duration-300`}
+            >
+              {isAvailable ? (
+                <ToggleRight className="w-6 h-6 text-white" />
+              ) : (
+                <ToggleLeft className="w-6 h-6 text-white" />
+              )}
+            </button>
           </div>
         </div>
       </div>
