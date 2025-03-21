@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin, Navigation, DollarSign } from "lucide-react";
 import L from "leaflet";
 import axios from "axios";
+import NearbyStands from "./BookNow"; // Import the BookNow component
 
 // Fix for default marker icons in Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -58,6 +59,7 @@ const PassengerModule = () => {
   const [estimatedFare, setEstimatedFare] = useState(null);
   const [mapCenter, setMapCenter] = useState([9.9312, 76.2673]); // Default: Kochi, Kerala
   const [isLoading, setIsLoading] = useState(false);
+  const [showBookNow, setShowBookNow] = useState(false);
 
   useEffect(() => {
     // Get the current location of the user
@@ -174,7 +176,7 @@ const PassengerModule = () => {
         setDuration(durationInMins + " mins");
         
         // Fare calculation: Base fare ₹30 + ₹10/km, minimum ₹50
-        const calculatedFare = Math.max(50, 30 + Math.round(distanceInKm) * 10);
+        const calculatedFare = Math.max(50, 30 + Math.round(parseFloat(distanceInKm)) * 10);
         setEstimatedFare(calculatedFare);
       } else {
         console.error("No route found.");
@@ -185,6 +187,30 @@ const PassengerModule = () => {
       setIsLoading(false);
     }
   };
+
+  const handleBookNow = () => {
+    setShowBookNow(true);
+  };
+
+  const handleBack = () => {
+    setShowBookNow(false);
+  };
+
+  // If the BookNow component is shown, render it instead
+  if (showBookNow && pickupCoords) {
+    return (
+      <NearbyStands 
+        userLocation={{ 
+          latitude: pickupCoords[0], 
+          longitude: pickupCoords[1] 
+        }}
+        onBack={handleBack}
+        fareEstimate={estimatedFare || 0}
+        pickupAddress={pickup}
+        destinationAddress={destination}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -293,6 +319,7 @@ const PassengerModule = () => {
           {/* Book Ride Button - Only shown when route is calculated */}
           {route && (
             <button
+              onClick={handleBookNow}
               className="w-full py-4 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600"
             >
               Book Now

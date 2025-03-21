@@ -79,14 +79,45 @@ export default function DriverDashboard() {
       setIsAtStand(newStatus);
 
       if (newStatus) {
+        // Get driver's current location
         const location = await getLocation();
         console.log("Driver is at stand - Location:", location);
+
+        // Update driver's `is_at_stand` status and location
         await updateStatus("is_at_stand", true, location);
+
+        // Fetch the driver's auto stand ID
+        const { data: autoStand, error: autoStandError } = await supabase
+          .from("autostands")
+          .select("*")
+          .eq("id", driver.auto_stand_id)
+          .single();
+
+        if (autoStandError) {
+          console.error("Error fetching auto stand:", autoStandError.message);
+          return;
+        }
+
+        // Update the auto stand's latitude & longitude with driver's location
+        const { error: updateStandError } = await supabase
+          .from("autostands")
+          .update({
+            latitude: location.latitude,
+            longitude: location.longitude
+          })
+          .eq("id", driver.auto_stand_id);
+
+        if (updateStandError) {
+          console.error("Error updating auto stand location:", updateStandError.message);
+        } else {
+          console.log("Auto stand location updated successfully!");
+        }
       } else {
+        // If driver leaves the stand, just update their `is_at_stand` status
         await updateStatus("is_at_stand", false);
       }
     } catch (error) {
-      console.error("Error getting location:", error.message);
+      console.error("Error handling stand toggle:", error.message);
     }
   };
 
