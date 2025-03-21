@@ -1,127 +1,81 @@
 import React, { useState, useEffect } from "react";
 import { Bell, User, MapPin, Clock, ToggleLeft, ToggleRight } from "lucide-react";
 import { supabase } from "../supabaseClient";
+import { joinQueue, leaveQueue, fetchQueuePosition } from "../queueSystem";
 
 export default function DriverDashboard() {
   const [driver, setDriver] = useState(null);
   const [isAvailable, setIsAvailable] = useState(false);
   const [isAtStand, setIsAtStand] = useState(false);
+  const [queuePosition, setQueuePosition] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const driverLicense = localStorage.getItem("driverLicense");
-
-  // Fetch driver data from Supabase
   useEffect(() => {
-    const fetchDriver = async () => {
-      if (!driverLicense) return;
+    const driverLicense = localStorage.getItem("driverLicense");
+    if (driverLicense) fetchDriver(driverLicense);
+    else setLoading(false);
+  }, []);
 
-      const { data, error } = await supabase
-        .from("drivers")
-        .select("*")
-        .eq("license_number", driverLicense)
-        .single();
+  const fetchDriver = async (driverLicense) => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("drivers")
+      .select("*")
+      .eq("license_number", driverLicense)
+      .single();
 
-      if (error) console.error("Error fetching driver:", error.message);
-      else {
-        setDriver(data);
-        setIsAvailable(data.is_available);
-        setIsAtStand(data.is_at_stand);
+    if (error) console.error("Error fetching driver:", error.message);
+    else if (data) {
+      setDriver(data);
+      setIsAvailable(data.is_available);
+      setIsAtStand(data.is_at_stand);
+      if (data.is_at_stand) {
+        const position = await fetchQueuePosition(data.id, data.auto_stand_id);
+        setQueuePosition(position);
       }
-    };
-
-    fetchDriver();
-  }, [driverLicense]);
-
-  // Update driver status in Supabase
-  const updateStatus = async (field, value, location = null) => {
-    if (!driver) return;
-
-    // Build update payload
-    const updateData = { [field]: value };
-
-    if (field === "is_at_stand" && value && location) {
-      updateData.latitude = location.latitude;
-      updateData.longitude = location.longitude;
     }
+    setLoading(false);
+  };
 
+  const updateStatus = async (field, value) => {
+    if (!driver) return false;
     const { error } = await supabase
       .from("drivers")
-      .update(updateData)
-      .eq("license_number", driver.license_number);
-
-    if (error) {
-      console.error(`Error updating ${field}:`, error.message);
-    } else {
-      console.log(`Successfully updated ${field} to:`, value);
-    }
+      .update({ [field]: value })
+      .eq("id", driver.id);
+    return !error;
   };
 
-  // Get driver's current location
-  const getLocation = () => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        return reject(new Error("Geolocation not supported"));
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        }),
-        (error) => reject(error)
-      );
-    });
-  };
-
-  // Handle "At Auto Stand" toggle
   const handleStandToggle = async () => {
-    try {
-      const newStatus = !isAtStand;
-      setIsAtStand(newStatus);
+    if (!driver || !driver.id || !driver.auto_stand_id) return;
+    const newStatus = !isAtStand;
 
-      if (newStatus) {
-        // Get driver's current location
-        const location = await getLocation();
-        console.log("Driver is at stand - Location:", location);
-
-        // Update driver's `is_at_stand` status and location
-        await updateStatus("is_at_stand", true, location);
-
-        // Fetch the driver's auto stand ID
-        const { data: autoStand, error: autoStandError } = await supabase
-          .from("autostands")
-          .select("*")
-          .eq("id", driver.auto_stand_id)
-          .single();
-
-        if (autoStandError) {
-          console.error("Error fetching auto stand:", autoStandError.message);
-          return;
-        }
-
-        // Update the auto stand's latitude & longitude with driver's location
-        const { error: updateStandError } = await supabase
-          .from("autostands")
-          .update({
-            latitude: location.latitude,
-            longitude: location.longitude
-          })
-          .eq("id", driver.auto_stand_id);
-
-        if (updateStandError) {
-          console.error("Error updating auto stand location:", updateStandError.message);
-        } else {
-          console.log("Auto stand location updated successfully!");
-        }
-      } else {
-        // If driver leaves the stand, just update their `is_at_stand` status
-        await updateStatus("is_at_stand", false);
+    if (newStatus) {
+      try {
+        const result = await joinQueue(driver.id, driver.auto_stand_id);
+        if (!result.error) setQueuePosition(result.position);
+        await updateStatus("is_at_stand", true);
+      } catch (error) {
+        console.error("Error joining queue:", error.message);
       }
-    } catch (error) {
-      console.error("Error handling stand toggle:", error.message);
+    } else {
+      await leaveQueue(driver.id, driver.auto_stand_id);
+      await updateStatus("is_at_stand", false);
+      setQueuePosition(null);
+    }
+
+    setIsAtStand(newStatus);
+  };
+
+  const handleAvailabilityToggle = async () => {
+    const newAvailability = !isAvailable;
+    if (await updateStatus("is_available", newAvailability)) {
+      setIsAvailable(newAvailability);
     }
   };
 
-  if (!driver) return <p>Loading...</p>;
+  if (loading) return <p className="text-center p-4">Loading...</p>;
+  if (!driver) return <p className="text-center p-4">No driver found. Please log in again.</p>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -142,47 +96,38 @@ export default function DriverDashboard() {
             </div>
           </div>
 
-          {/* At Auto Stand Toggle */}
-          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+          {isAtStand && queuePosition !== null && (
+            <div className="p-4 mb-4 bg-yellow-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-yellow-800 font-medium">Queue Position:</span>
+                <span className="text-yellow-800 font-bold">{queuePosition}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg mb-4">
             <div className="flex items-center space-x-3">
               <MapPin className="w-5 h-5 text-yellow-600" />
               <span>At Auto Stand</span>
             </div>
             <button
               onClick={handleStandToggle}
-              className={`p-2 rounded-full ${
-                isAtStand ? "bg-green-500" : "bg-gray-300"
-              } transition-colors duration-300`}
+              className={`p-2 rounded-full transition-colors duration-300 ${isAtStand ? "bg-green-500" : "bg-gray-300"}`}
             >
-              {isAtStand ? (
-                <ToggleRight className="w-6 h-6 text-white" />
-              ) : (
-                <ToggleLeft className="w-6 h-6 text-white" />
-              )}
+              {isAtStand ? <ToggleRight className="w-6 h-6 text-white" /> : <ToggleLeft className="w-6 h-6 text-white" />}
             </button>
           </div>
 
-          {/* Available for Rides Toggle */}
           <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center space-x-3">
               <Clock className="w-5 h-5 text-yellow-600" />
               <span>Available for Rides</span>
             </div>
             <button
-              onClick={() => {
-                const newAvailability = !isAvailable;
-                setIsAvailable(newAvailability);
-                updateStatus("is_available", newAvailability);
-              }}
-              className={`p-2 rounded-full ${
-                isAvailable ? "bg-green-500" : "bg-gray-300"
-              } transition-colors duration-300`}
+              onClick={handleAvailabilityToggle}
+              className={`p-2 rounded-full transition-colors duration-300 ${isAvailable ? "bg-green-500" : "bg-gray-300"}`}
             >
-              {isAvailable ? (
-                <ToggleRight className="w-6 h-6 text-white" />
-              ) : (
-                <ToggleLeft className="w-6 h-6 text-white" />
-              )}
+              {isAvailable ? <ToggleRight className="w-6 h-6 text-white" /> : <ToggleLeft className="w-6 h-6 text-white" />}
             </button>
           </div>
         </div>

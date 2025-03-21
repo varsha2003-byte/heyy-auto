@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react'; 
 import { supabase } from "../supabaseClient";
 import { TicketSlash as AutoRickshaw, ArrowLeft } from 'lucide-react';
 
@@ -8,7 +8,7 @@ interface AutoStand {
   address?: string;
   available_autos: number;
   distance: number;
-  location?: string; // Location attribute from autostands table
+  location?: string;
 }
 
 interface NearbyStandsProps {
@@ -17,17 +17,14 @@ interface NearbyStandsProps {
     longitude: number;
   };
   onBack: () => void;
-  fareEstimate: number; // Keep the original prop
+  fareEstimate: number;
   pickupAddress: string;
   destinationAddress: string;
 }
 
-// Unified fare calculation function to be used throughout the app
 const calculateFare = (distance: number) => {
-  // Base fare of 30 rupees + 10 rupees per kilometer (rounded)
-  // Ensure the distance is a valid number
   if (isNaN(distance) || distance === undefined) {
-    return 50; // Default minimum fare
+    return 50;
   }
   return Math.max(50, 30 + (Math.round(distance) * 10));
 };
@@ -35,14 +32,14 @@ const calculateFare = (distance: number) => {
 export default function NearbyStands({
   userLocation,
   onBack,
-  fareEstimate, // Keep the original prop
+  fareEstimate,
   pickupAddress,
   destinationAddress,
 }: NearbyStandsProps) {
   const [stands, setStands] = useState<AutoStand[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStand, setSelectedStand] = useState<AutoStand | null>(null);
-  const [radius] = useState(5); // Adjustable search radius (in km)
+  const [radius] = useState(5);
 
   useEffect(() => {
     const fetchNearbyStands = async () => {
@@ -98,7 +95,6 @@ export default function NearbyStands({
           <h1 className="text-2xl font-semibold">Choose a ride</h1>
         </div>
 
-        {/* Trip details */}
         <div className="bg-gray-100 p-4 rounded-lg mb-6">
           <div className="flex flex-col space-y-2">
             <div className="flex items-center">
@@ -115,7 +111,6 @@ export default function NearbyStands({
           </div>
         </div>
 
-        {/* Auto Stands List */}
         {stands.length > 0 ? (
           <div className="space-y-4">
             {stands.map((stand) => (
@@ -161,7 +156,6 @@ export default function NearbyStands({
           </div>
         )}
 
-        {/* Booking Confirmation Modal */}
         {selectedStand && (
           <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40">
             <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -172,16 +166,10 @@ export default function NearbyStands({
               )}
               <p className="mt-1 text-orange-600 font-semibold">Fare: ₹{fareEstimate || 50}</p>
               <div className="mt-4 flex justify-end space-x-3">
-                <button
-                  onClick={() => setSelectedStand(null)}
-                  className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-100"
-                >
+                <button onClick={() => setSelectedStand(null)} className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-100">
                   Cancel
                 </button>
-                <button
-                  onClick={confirmBooking}
-                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-                >
+                <button onClick={confirmBooking} className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
                   Confirm
                 </button>
               </div>
