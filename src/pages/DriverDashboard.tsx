@@ -48,23 +48,65 @@ export default function DriverDashboard() {
 
   const handleStandToggle = async () => {
     if (!driver || !driver.id || !driver.auto_stand_id) return;
+
     const newStatus = !isAtStand;
 
     if (newStatus) {
       try {
+        // Get driver's current location
+        const location = await getLocation();
+        if (!location) {
+          console.error("Could not retrieve location.");
+          return;
+        }
+
+        // Join the queue and update status
         const result = await joinQueue(driver.id, driver.auto_stand_id);
         if (!result.error) setQueuePosition(result.position);
-        await updateStatus("is_at_stand", true);
+
+        // Update driver's status in Supabase
+        const { error: driverError } = await supabase
+          .from("drivers")
+          .update({
+            is_at_stand: true,
+            latitude: location.latitude,
+            longitude: location.longitude,
+          })
+          .eq("id", driver.id);
+
+        if (driverError) {
+          console.error("Error updating driver location:", driverError.message);
+          return;
+        }
+
+        // Update autostands table with driver's location
+        const { error: standError } = await supabase
+          .from("autostands")
+          .update({
+            latitude: location.latitude,
+            longitude: location.longitude,
+          })
+          .eq("id", driver.auto_stand_id);
+
+        if (standError) console.error("Error updating auto stand location:", standError.message);
+        else console.log("Auto stand location updated successfully.");
+
+        setIsAtStand(true);
       } catch (error) {
-        console.error("Error joining queue:", error.message);
+        console.error("Error handling stand toggle:", error.message);
       }
     } else {
+      // Leave queue and update status in Supabase
       await leaveQueue(driver.id, driver.auto_stand_id);
-      await updateStatus("is_at_stand", false);
-      setQueuePosition(null);
-    }
+      const { error } = await supabase
+        .from("drivers")
+        .update({ is_at_stand: false })
+        .eq("id", driver.id);
 
-    setIsAtStand(newStatus);
+      if (error) console.error("Error updating driver status:", error.message);
+      setQueuePosition(null);
+      setIsAtStand(false);
+    }
   };
 
   const handleAvailabilityToggle = async () => {
@@ -72,6 +114,26 @@ export default function DriverDashboard() {
     if (await updateStatus("is_available", newAvailability)) {
       setIsAvailable(newAvailability);
     }
+  };
+
+  const getLocation = () => {
+    return new Promise((resolve, reject) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            });
+          },
+          (error) => {
+            reject(error);
+          }
+        );
+      } else {
+        reject(new Error("Geolocation is not supported by this browser."));
+      }
+    });
   };
 
   if (loading) return <p className="text-center p-4">Loading...</p>;
@@ -105,6 +167,7 @@ export default function DriverDashboard() {
             </div>
           )}
 
+          {/* Toggle for At Auto Stand */}
           <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg mb-4">
             <div className="flex items-center space-x-3">
               <MapPin className="w-5 h-5 text-yellow-600" />
@@ -118,6 +181,7 @@ export default function DriverDashboard() {
             </button>
           </div>
 
+          {/* Toggle for Available for Rides */}
           <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center space-x-3">
               <Clock className="w-5 h-5 text-yellow-600" />
